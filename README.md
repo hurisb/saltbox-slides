@@ -11,7 +11,7 @@ shared as a link.
 You don't need to know how to code. If you can describe what you want, you can use this.
 
 ▶ **See it first:** open [`examples/demo/index.html`](examples/demo/index.html) (download it and double-click),
-or view the live demo: https://saltbox-slides-demo.vercel.app *(link added after the first deploy)*.
+or view the **[live demo](https://saltbox-slides-demo.vercel.app)**.
 
 ---
 
