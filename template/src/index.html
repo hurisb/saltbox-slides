@@ -1,0 +1,1068 @@
+<title>Saltbox Slides Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+
+<!--
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │ HOW THIS DECK IS ORGANIZED                                               │
+  │                                                                          │
+  │ 1. <style>   Saltbox design tokens first, then scenes, slides, chrome.   │
+  │ 2. .scenes   The template backgrounds (light, dark, gradient). They sit  │
+  │              behind every slide, so slides that share a scene share one  │
+  │              background and only their content moves.                    │
+  │ 3. .slide    One <section> per slide. data-scene picks the background.   │
+  │              Anything with data-anim animates in (see ENTRANCES in JS).  │
+  │              <aside class="notes"> holds the speaker notes (press N).    │
+  │ 4. <script>  The engine: scaling, navigation, transitions.               │
+  │                                                                          │
+  │ The stage is a fixed 1920×1080 canvas scaled to fit the screen, so every │
+  │ size below is in "slide pixels" exactly like a 16:9 Google Slides page.  │
+  └──────────────────────────────────────────────────────────────────────────┘
+-->
+
+<style>
+/* Layout concept: a 16:9 stage that keeps the template's geometry (Google Slides ×2),
+   light content slides on the white glow ground, dark purple glow for openers and dividers. */
+:root{
+  /* ── Saltbox brand (sb-brandguideline) ── */
+  --sb-blue:#1F4796;          /* Brand Blue: titles, key UI */
+  --sb-purple:#7F3F98;        /* Brand Purple: only inside the gradient */
+  --sb-gradient:linear-gradient(45deg,#1F4796 0%,#7F3F98 100%);
+  --sb-blue-50:#EEF2FA;       /* light brand-blue tint for chips/fills */
+  --sb-blue-100:#DCE4F4;
+
+  /* ── Gray (light mode scale) ── */
+  --gray-200:#E9EAEB; --gray-300:#D5D7DA; --gray-500:#717680;
+  --gray-600:#535862; --gray-700:#414651; --gray-900:#181D27;
+
+  /* ── On dark scenes ── */
+  --on-dark:#FFFFFF; --on-dark-2:rgba(255,255,255,.74); --on-dark-3:rgba(255,255,255,.5);
+  --dark-ground:#2B1B5A;      /* matches the template's dark glow */
+  --letterbox:#120C2A;
+
+  /* ── Type ── */
+  --font-display:"Space Grotesk","Inter",system-ui,sans-serif;
+  --font-body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+
+  /* ── Motion: one curve family across the deck ── */
+  --ease-out:cubic-bezier(.16,1,.3,1);       /* expo.out */
+  --ease-inout:cubic-bezier(.65,0,.35,1);
+
+  /* ── LIGHT DIALS: turn the whole deck's moving light up or down ──
+     --light-amp   how far lights travel and how much they change shape (1 = subtle, 2.5 = lively)
+     --light-speed multiplies every cycle time (1 = original, .5 = twice as fast) */
+  --light-amp:2.4;
+  --light-speed:.5;
+  --cursor-light-opacity:.15;  /* cursor light layer opacity (overlay mode), like a Photoshop layer */
+  color-scheme:light;
+}
+
+html,body{height:100%}
+body{
+  margin:0; overflow:hidden; background:var(--letterbox); color:var(--gray-900);
+  font-family:var(--font-body); -webkit-font-smoothing:antialiased;
+  padding-left:max(0px, env(safe-area-inset-left, 0px));
+  padding-right:max(0px, env(safe-area-inset-right, 0px));
+}
+@media (max-width:700px){
+  body{padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px))}
+}
+
+/* ───────────────────────── Stage ───────────────────────── */
+.viewport{position:relative; height:100%; overflow:hidden}
+.stage{
+  position:absolute; left:50%; top:50%; width:1920px; height:1080px;
+  transform-origin:0 0; overflow:hidden; background:#fff;
+  box-shadow:0 30px 80px rgba(0,0,0,.35);
+}
+
+/* ───────────────────────── Scenes (template backgrounds) ───────────────────────── */
+.scenes,.scene,.scene > *{position:absolute; inset:0}
+.scene{opacity:0; will-change:opacity,transform}
+.scene.is-on{opacity:1}
+.scene .ground{inset:-5%; background-size:cover; background-position:center; will-change:transform}
+.scene .hex{background-size:cover; background-position:center; pointer-events:none}
+.scene .orb{position:absolute; inset:auto; border-radius:50%; filter:blur(90px); will-change:transform; pointer-events:none}
+.scene--light .orb{border-radius:42% 58% 63% 37% / 41% 44% 56% 59%}
+
+/* Light: white with the soft blue/violet light in the lower right */
+.scene--light{background:#fff}
+.scene--light .ground{background-image:url(assets/bg-light-glow.webp); animation:drift-light calc(28s * var(--light-speed)) var(--ease-inout) infinite alternate}
+.scene--light .hex{background-image:url(assets/hex-light.webp)}
+.scene--light .orb--a{width:620px;height:620px; right:-120px; bottom:-200px;
+  background:radial-gradient(circle, rgba(122,160,255,.30), rgba(122,160,255,0) 70%);
+  animation:orb-a calc(19s * var(--light-speed)) var(--ease-inout) infinite alternate, morph calc(27s * var(--light-speed)) ease-in-out infinite alternate}
+.scene--light .orb--b{width:520px;height:520px; right:260px; bottom:-260px;
+  background:radial-gradient(circle, rgba(167,128,232,.22), rgba(167,128,232,0) 70%);
+  animation:orb-b calc(23s * var(--light-speed)) var(--ease-inout) infinite alternate, morph calc(33s * var(--light-speed)) ease-in-out infinite alternate-reverse}
+
+/* Dark: deep purple with the light rising from the bottom */
+.scene--dark{background:var(--dark-ground)}
+.scene--dark .ground{background-image:url(assets/bg-dark-glow.webp); animation:drift-dark calc(30s * var(--light-speed)) var(--ease-inout) infinite alternate}
+.scene--dark .hex{background-image:url(assets/hex-dark.webp); opacity:.9}
+
+/* Gradient: blue → magenta, for logo and closing screens */
+.scene--gradient{background:#4A3A8C}
+.scene--gradient .ground{background-image:url(assets/bg-gradient.webp); animation:drift-dark calc(34s * var(--light-speed)) var(--ease-inout) infinite alternate}
+
+/* ───────── Living light ─────────
+   .glow = a soft light that slowly changes shape (border-radius morph) and wanders (translate/rotate/scale).
+   It uses mix-blend-mode:overlay, so it brightens and saturates whatever color sits under it:
+   on purple it reads as light passing through, on the brand gradient as a sheen.
+   Tune per instance with CSS variables: --size, --c (color), --o (opacity), --blur, --dx/--dy (wander), --t1/--t2 (cycle times). */
+.glow{position:absolute; width:var(--size,600px); height:var(--size,600px); pointer-events:none;
+  mix-blend-mode:overlay; opacity:var(--o,.9); filter:blur(var(--blur,70px));
+  background:radial-gradient(circle at 50% 50%, var(--c,#fff) 0%, var(--c,#fff) 30%, transparent 72%);
+  border-radius:42% 58% 63% 37% / 41% 44% 56% 59%;
+  animation:morph calc(var(--t1,26s) * var(--light-speed)) ease-in-out infinite alternate,
+            wander calc(var(--t2,37s) * var(--light-speed)) ease-in-out infinite alternate,
+            breathe calc(var(--t1,26s) * var(--light-speed) * .6) ease-in-out infinite alternate;
+  will-change:transform,border-radius}
+.glow--normal{mix-blend-mode:normal}
+@keyframes morph{
+  0%  {border-radius:30% 70% 70% 30% / 30% 30% 70% 70%}
+  25% {border-radius:68% 32% 41% 59% / 58% 71% 29% 42%}
+  50% {border-radius:35% 65% 28% 72% / 70% 38% 62% 30%}
+  75% {border-radius:62% 38% 66% 34% / 33% 62% 38% 67%}
+  100%{border-radius:44% 56% 32% 68% / 61% 29% 71% 39%}
+}
+@keyframes wander{
+  0%  {transform:translate3d(0,0,0) rotate(0deg) scale(1,1)}
+  33% {transform:translate3d(calc(var(--dx,-40px) * var(--light-amp)),calc(var(--dy,24px) * var(--light-amp)),0) rotate(calc(18deg * var(--light-amp))) scale(1.16,.9)}
+  66% {transform:translate3d(calc(var(--dx,-40px) * var(--light-amp) * -.5),calc(var(--dy,24px) * var(--light-amp) * 1.1),0) rotate(calc(-10deg * var(--light-amp))) scale(.9,1.14)}
+  100%{transform:translate3d(calc(var(--dx,-40px) * var(--light-amp) * -.9),calc(var(--dy,24px) * var(--light-amp) * -.4),0) rotate(calc(-22deg * var(--light-amp))) scale(1.08,1.02)}
+}
+@keyframes breathe{ 0%{opacity:calc(var(--o,.9) * .55)} 100%{opacity:var(--o,.9)} }
+
+/* The light moves, slowly. Small distances, long durations, eased both ways. */
+@keyframes drift-light{
+  0%  {transform:translate3d(0,0,0) scale(1)}
+  50% {transform:translate3d(-3.2%,-2.4%,0) scale(1.06)}
+  100%{transform:translate3d(-1%,-4%,0) scale(1.03)}
+}
+@keyframes drift-dark{
+  0%  {transform:translate3d(-2.4%,0,0) scale(1.02)}
+  50% {transform:translate3d(.8%,-1.6%,0) scale(1.07)}
+  100%{transform:translate3d(2.6%,-.6%,0) scale(1.04)}
+}
+@keyframes orb-a{ 0%{transform:translate3d(0,0,0) scale(1)} 50%{transform:translate3d(-180px,-120px,0) scale(1.15,.9)} 100%{transform:translate3d(-60px,-200px,0) scale(.92,1.1)} }
+@keyframes orb-b{ 0%{transform:translate3d(0,0,0) scale(1)} 50%{transform:translate3d(170px,-90px,0) scale(.9,1.12)} 100%{transform:translate3d(60px,-170px,0) scale(1.12,.94)} }
+
+/* ───────── Cursor light (cover + thank-you) ─────────
+   A rig of two lights that trail the pointer. The rig stretches along its direction of travel
+   (the "squeeze") and relaxes when it slows down; inside, each blob keeps morphing on its own,
+   so the light is never still even when the cursor is. Slides opt in with data-cursor-light. */
+.cursor-rig{position:absolute; left:0; top:0; width:0; height:0; pointer-events:none; opacity:0; mix-blend-mode:overlay;
+  transition:opacity 1.2s var(--ease-out); will-change:transform}
+.stage.cursor-on .cursor-rig{opacity:var(--cursor-light-opacity)}
+.cursor-rig .core,.cursor-rig .halo{position:absolute; left:0; top:0; will-change:transform}
+/* The rig is one layer: Overlay mode at --cursor-light-opacity. Its blobs paint normally inside it. */
+.cursor-rig .blob{position:absolute; border-radius:50%; filter:blur(var(--blur,60px));
+  background:radial-gradient(circle, var(--c) 0%, var(--c) 28%, transparent 70%);
+  width:var(--size); height:var(--size); margin:calc(var(--size) / -2) 0 0 calc(var(--size) / -2); opacity:var(--o,1);
+  animation:morph calc(9s * var(--light-speed) * 2) ease-in-out infinite alternate,
+            squeeze calc(5s * var(--light-speed) * 2) ease-in-out infinite alternate}
+.cursor-rig .blob--b{animation-direction:alternate-reverse; animation-duration:calc(11s * var(--light-speed) * 2), calc(6.5s * var(--light-speed) * 2)}
+@keyframes squeeze{
+  0%  {transform:rotate(0deg) scale(1.12,.86)}
+  50% {transform:rotate(40deg) scale(.88,1.14)}
+  100%{transform:rotate(-25deg) scale(1.06,.95)}
+}
+.thumb .cursor-rig{display:none}
+
+/* ───────────────────────── Slides ───────────────────────── */
+.slide{position:absolute; inset:0; visibility:hidden}
+.slide.is-active{visibility:visible}
+.slide .notes{display:none}
+
+.logo{position:absolute; display:block}
+.logo img{display:block; width:100%; height:auto}
+
+/* Type scale (slide pixels) */
+.eyebrow{font:600 20px/1 var(--font-body); letter-spacing:.16em; text-transform:uppercase; color:var(--sb-blue)}
+.h-hero{font:600 128px/.98 var(--font-display); letter-spacing:-.035em; margin:0; color:var(--on-dark)}
+.h1{font:600 104px/1 var(--font-display); letter-spacing:-.03em; margin:0; color:var(--sb-blue)}
+.h3{font:600 40px/1.1 var(--font-display); letter-spacing:-.015em; margin:0; color:var(--gray-900)}
+.lead{font:400 30px/1.45 var(--font-body); margin:0; color:var(--gray-700)}
+.body{font:400 22px/1.5 var(--font-body); margin:0; color:var(--gray-600)}
+.grad-text{background:var(--sb-gradient); -webkit-background-clip:text; background-clip:text; color:transparent}
+
+/* Line-mask reveal for headlines: each .ln clips its inner span */
+.ln{display:block; overflow:hidden; padding-bottom:.08em; margin-bottom:-.08em}
+.ln > span{display:inline-block; will-change:transform}
+
+/* Slide number + footer logo shared by content slides */
+.folio{position:absolute; right:72px; bottom:52px; font:500 18px/1 var(--font-body); letter-spacing:.08em;
+  color:var(--gray-500); font-variant-numeric:tabular-nums}
+.foot-logo{left:72px; bottom:44px; width:132px}
+
+/* ─────────── 01 · Cover ─────────── */
+.cover-photo{position:absolute; top:0; right:0; width:860px; height:1080px;
+  clip-path:polygon(34% 0,100% 0,100% 100%,0 100%); overflow:hidden}
+.cover-photo .img{position:absolute; inset:-4%; background:url(assets/mountain.webp) 62% 40%/cover;
+  animation:kenburns 26s var(--ease-inout) infinite alternate; will-change:transform}
+.cover-photo::after{content:""; position:absolute; inset:0;
+  background:linear-gradient(90deg, rgba(43,27,90,.92) 0%, rgba(43,27,90,.25) 38%, rgba(43,27,90,0) 60%),
+             linear-gradient(0deg, rgba(43,27,90,.55) 0%, rgba(43,27,90,0) 35%)}
+@keyframes kenburns{0%{transform:scale(1.02) translate3d(0,0,0)} 100%{transform:scale(1.09) translate3d(-1.2%,-1%,0)}}
+.cover-edge{position:absolute; inset:0; pointer-events:none}
+.cover .logo{left:72px; top:64px; width:200px}
+.cover-copy{position:absolute; left:120px; top:250px; width:1040px; display:flex; flex-direction:column; gap:40px}
+.cover .eyebrow{color:var(--on-dark-2); display:flex; align-items:center; gap:20px}
+.cover .eyebrow .rule{display:block; width:96px; height:2px; background:linear-gradient(90deg,#8FB2FF,#C79BFF); transform-origin:left}
+.cover .lead{color:var(--on-dark-2); max-width:820px}
+.cover-meta{position:absolute; left:120px; bottom:84px; display:flex; align-items:center; gap:28px}
+.cover-meta img{width:84px; height:auto; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.cover-meta dl{margin:0; display:flex; gap:56px}
+.cover-meta dt{font:600 15px/1 var(--font-body); letter-spacing:.16em; text-transform:uppercase; color:var(--on-dark-3); margin-bottom:12px}
+.cover-meta dd{margin:0; font:500 24px/1.2 var(--font-body); color:var(--on-dark)}
+.cover-meta .sep{width:1px; height:56px; background:rgba(255,255,255,.18)}
+
+/* ─────────── 02 · Agenda ─────────── */
+.agenda .logo{right:72px; top:60px; width:150px}
+.agenda-head{position:absolute; left:120px; top:132px; display:flex; flex-direction:column; gap:28px; width:620px}
+.agenda-ghost{position:absolute; left:-24px; bottom:-112px; margin:0;
+  font:600 400px/1 var(--font-display); letter-spacing:-.04em; color:transparent;
+  -webkit-text-stroke:2px rgba(31,71,150,.13); white-space:nowrap; pointer-events:none;
+  animation:ghost 30s var(--ease-inout) infinite alternate}
+@keyframes ghost{0%{transform:translate3d(0,0,0)} 100%{transform:translate3d(28px,0,0)}}
+.agenda-list{position:absolute; left:860px; top:176px; width:940px; margin:0; padding:0; list-style:none;
+  display:flex; flex-direction:column}
+.agenda-list li{display:grid; grid-template-columns:120px 1fr; align-items:baseline; gap:8px;
+  padding:28px 0; border-top:1.5px solid var(--gray-200); position:relative}
+.agenda-list li:last-child{border-bottom:1.5px solid var(--gray-200)}
+.agenda-list .num{font:500 30px/1 var(--font-display); letter-spacing:-.01em; font-variant-numeric:tabular-nums}
+.agenda-list .t{font:600 44px/1.1 var(--font-display); letter-spacing:-.02em; color:var(--gray-900); margin:0 0 10px}
+.agenda-list .d{font:400 22px/1.45 var(--font-body); color:var(--gray-600); margin:0}
+
+/* ─────────── 03 · Meet Saltbox ─────────── */
+.meet-copy{position:absolute; left:120px; top:112px; width:620px; display:flex; flex-direction:column; gap:36px}
+.statement{margin:0; padding:40px 44px; border-radius:28px; background:var(--sb-gradient); color:#fff;
+  font:500 28px/1.42 var(--font-body); box-shadow:0 24px 60px -24px rgba(31,71,150,.55); position:relative; overflow:hidden}
+.statement{isolation:isolate}
+.statement > span:not(.glow){position:relative; z-index:1}
+.statement .glow{z-index:0}
+.proof{display:grid; grid-template-columns:repeat(3,1fr); gap:28px; margin:0}
+.proof > div{display:flex; flex-direction:column; gap:12px; padding-top:22px; border-top:2px solid var(--sb-blue-100)}
+.proof dt{order:2; font:400 19px/1.4 var(--font-body); color:var(--gray-600)}
+.proof dd{order:1; margin:0; font:600 52px/1 var(--font-display); letter-spacing:-.03em; font-variant-numeric:tabular-nums}
+.proof dd.small{font-size:34px; line-height:1.1; padding-top:8px; min-height:52px; display:flex; align-items:flex-end}
+.backed{display:flex; align-items:center; gap:14px; font:500 19px/1.3 var(--font-body); color:var(--gray-600)}
+.backed .ic{width:22px; height:22px; color:var(--sb-blue)}
+
+.wheel{position:absolute; left:800px; top:60px; width:1080px; height:960px}
+.wheel svg.rings{position:absolute; inset:0; overflow:visible}
+.wheel .hub{position:absolute; left:540px; top:480px; width:260px; height:260px; margin:-130px 0 0 -130px; border-radius:50%;
+  background:var(--sb-gradient); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  box-shadow:0 30px 70px -20px rgba(31,71,150,.55), inset 0 0 0 10px rgba(255,255,255,.08); text-align:center;
+  overflow:hidden; isolation:isolate}
+.wheel .hub > :not(.glow){position:relative; z-index:1}
+.wheel .hub img{width:140px}
+.wheel .hub span{font:500 13px/1.45 var(--font-body); letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.82)}
+.wheel .spin{transform-origin:540px 480px; animation:spin 140s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.node{position:absolute; width:0; height:0}
+.node .dot{position:absolute; left:-36px; top:-36px; width:72px; height:72px; border-radius:50%; background:#fff;
+  display:grid; place-items:center; color:var(--sb-blue);
+  box-shadow:0 0 0 1.5px var(--sb-blue-100), 0 14px 30px -12px rgba(31,71,150,.45)}
+.node .dot .ic{width:30px; height:30px}
+.node .lbl{position:absolute; width:215px; font:600 21px/1.25 var(--font-display); letter-spacing:-.005em; color:var(--gray-900)}
+
+
+/* ─────────── Shared content-slide parts ─────────── */
+.head{position:absolute; left:120px; top:92px; right:120px; display:flex; flex-direction:column; gap:18px}
+.h2{font:600 72px/1.04 var(--font-display); letter-spacing:-.028em; margin:0; color:var(--sb-blue); text-wrap:balance}
+.head .sub{font:400 24px/1.45 var(--font-body); color:var(--gray-600); margin:0; max-width:1100px}
+.foot{position:absolute; left:72px; bottom:44px; width:118px; opacity:.9}
+.card{background:rgba(255,255,255,.82); border:1.5px solid var(--gray-200); border-radius:22px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04), 0 18px 40px -28px rgba(31,71,150,.35);
+  -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px)}
+.chip-ic{width:52px; height:52px; border-radius:14px; display:grid; place-items:center; flex:none;
+  background:var(--sb-blue-50); color:var(--sb-blue)}
+.chip-ic .ic{width:26px; height:26px}
+.list{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:12px}
+.list li{position:relative; padding-left:24px; font:400 21px/1.42 var(--font-body); color:var(--gray-700)}
+.list li::before{content:""; position:absolute; left:2px; top:.62em; width:8px; height:8px; border-radius:2px; transform:rotate(45deg);
+  background:var(--sb-gradient)}
+.list b{font-weight:600; color:var(--gray-900)}
+.logos{display:flex; flex-wrap:wrap; align-items:center; gap:18px 26px}
+.logos img{display:block; height:48px; width:auto; max-width:180px; object-fit:contain}
+.logos img.tall{height:62px}
+
+/* ─────────── 04 · Target industries ─────────── */
+.ind-grid{position:absolute; left:120px; right:120px; top:352px; bottom:126px;
+  display:grid; grid-template-columns:repeat(4,1fr); grid-template-rows:1fr 1fr; gap:24px; margin:0; padding:0; list-style:none}
+.ind{padding:28px 28px 26px; display:flex; flex-direction:column; gap:14px}
+.ind h3{margin:0; font:600 29px/1.15 var(--font-display); letter-spacing:-.012em; color:var(--gray-900)}
+.ind h3 small{display:block; margin-top:8px; font:400 19px/1.35 var(--font-body); letter-spacing:0; color:var(--gray-500)}
+.ind .logos{margin-top:auto; min-height:64px}
+
+/* ─────────── 05 · Things to look for ─────────── */
+.sig-grid{position:absolute; left:120px; right:120px; top:300px; bottom:118px;
+  display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:1fr 1fr; gap:24px}
+.sig{padding:28px 30px; display:flex; flex-direction:column; gap:18px; min-width:0}
+.sig header{display:flex; align-items:center; gap:16px}
+.sig h3{margin:0; font:600 25px/1.2 var(--font-display); letter-spacing:-.01em; color:var(--gray-900)}
+.sig h3 small{display:block; font:500 15px/1.3 var(--font-body); letter-spacing:.1em; text-transform:uppercase; color:var(--gray-500); margin-top:4px}
+.sig .list li{font-size:22px}
+.sig .tag{display:inline-block; margin-left:6px; padding:2px 10px; border-radius:999px; font:600 14px/1.5 var(--font-body);
+  background:var(--sb-blue-50); color:var(--sb-blue); white-space:nowrap}
+
+/* ─────────── 06 · Plays divider (dark) ─────────── */
+.divider .logo{left:72px; top:64px; width:170px}
+.divider .head{top:180px}
+.divider .eyebrow{color:var(--on-dark-2)}
+.divider .h2{color:#fff; font-size:92px; max-width:none}
+.divider .head .sub{color:var(--on-dark-2); font-size:28px}
+.plays{position:absolute; left:120px; right:120px; bottom:120px; display:grid; grid-template-columns:repeat(3,1fr); gap:28px}
+.play-card{position:relative; overflow:hidden; isolation:isolate; padding:34px 34px 36px; border-radius:24px;
+  background:linear-gradient(160deg, rgba(255,255,255,.14), rgba(255,255,255,.04)); border:1px solid rgba(255,255,255,.18);
+  -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); color:#fff; display:flex; flex-direction:column; gap:16px}
+.play-card .k{font:600 16px/1 var(--font-body); letter-spacing:.16em; text-transform:uppercase; color:#B9C9FF}
+.play-card h3{margin:0; font:600 36px/1.12 var(--font-display); letter-spacing:-.015em}
+.play-card p{margin:0; font:400 21px/1.5 var(--font-body); color:var(--on-dark-2)}
+.play-card .chip-ic{background:rgba(255,255,255,.12); color:#fff}
+.play-card > :not(.glow){position:relative; z-index:1}
+
+/* ─────────── 07–09 · Plays ─────────── */
+.pl-panel{position:absolute; left:0; top:0; bottom:0; width:620px; padding:84px 64px 64px 96px; box-sizing:border-box;
+  background:var(--sb-gradient); color:#fff; overflow:hidden; isolation:isolate; display:flex; flex-direction:column; gap:22px}
+.pl-panel > :not(.glow){position:relative; z-index:1}
+.pl-panel .k{display:inline-flex; align-self:flex-start; align-items:center; gap:10px; padding:8px 16px; border-radius:999px;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22); font:600 15px/1 var(--font-body); letter-spacing:.14em; text-transform:uppercase}
+.pl-panel h2{margin:0; font:600 60px/1.04 var(--font-display); letter-spacing:-.028em}
+.pl-panel .use{margin-top:18px; padding-top:26px; border-top:1px solid rgba(255,255,255,.22)}
+.pl-panel .use span{display:block; font:600 15px/1 var(--font-body); letter-spacing:.14em; text-transform:uppercase; color:#C9D6FF; margin-bottom:12px}
+.pl-panel .use h3{margin:0 0 12px; font:600 34px/1.15 var(--font-display); letter-spacing:-.015em}
+.pl-panel .use p{margin:0; font:400 23px/1.5 var(--font-body); color:rgba(255,255,255,.82)}
+.pl-proof{margin-top:auto}
+.pl-proof span{display:block; font:600 14px/1 var(--font-body); letter-spacing:.14em; text-transform:uppercase; color:#C9D6FF; margin-bottom:14px}
+.pl-proof .logos{padding:18px 22px; border-radius:16px; background:#fff; gap:14px 26px}
+.pl-proof .logos img{height:38px; max-width:150px}
+.pl-proof .logos img.tall{height:56px}
+.pl-body{position:absolute; left:700px; right:96px; top:92px; bottom:120px; display:grid; grid-template-columns:1fr 1fr; gap:56px}
+.pl-col{display:flex; flex-direction:column; gap:22px; min-width:0}
+.pl-col h4{margin:0 0 6px; display:flex; align-items:center; gap:14px; font:600 30px/1.2 var(--font-display); letter-spacing:-.01em; color:var(--sb-blue)}
+.pl-col h4 .chip-ic{width:44px; height:44px; border-radius:12px}
+.pl-col h4 .chip-ic .ic{width:22px; height:22px}
+.pl-col .list{gap:22px} .pl-col .list li{font-size:25px; line-height:1.42}
+.sku{display:flex; flex-direction:column; gap:16px; margin:0; padding:0; list-style:none}
+.sku li{padding:20px 24px; border-radius:16px; background:rgba(255,255,255,.85); border:1.5px solid var(--gray-200);
+  font:400 21px/1.42 var(--font-body); color:var(--gray-600)}
+.sku li b{display:block; font:600 24px/1.3 var(--font-display); color:var(--gray-900); margin-bottom:2px}
+.sku li ul{margin:8px 0 0; padding-left:20px} .sku li ul li{all:unset; display:list-item; font:400 20px/1.5 var(--font-body); color:var(--gray-600)}
+.sku .opt{font:600 13px/1 var(--font-body); letter-spacing:.06em; text-transform:uppercase; color:var(--sb-purple); margin-left:8px; vertical-align:2px}
+
+/* ─────────── 10 · Selling resource ─────────── */
+.res-grid{position:absolute; left:120px; right:120px; top:330px; height:500px; display:grid; grid-template-columns:repeat(3,1fr) 1.05fr; gap:24px}
+.res{padding:40px 36px; display:flex; flex-direction:column; gap:22px}
+.res h3{margin:0; font:600 32px/1.16 var(--font-display); letter-spacing:-.012em; color:var(--gray-900)}
+.res p{margin:0; font:400 24px/1.5 var(--font-body); color:var(--gray-600)}
+.contact{position:relative; overflow:hidden; isolation:isolate; padding:40px 36px; border-radius:22px; background:var(--sb-gradient); color:#fff;
+  display:flex; flex-direction:column; gap:18px; box-shadow:0 24px 60px -24px rgba(31,71,150,.55)}
+.contact > :not(.glow){position:relative; z-index:1}
+.contact .k{font:600 15px/1 var(--font-body); letter-spacing:.14em; text-transform:uppercase; color:#C9D6FF}
+.contact img{width:112px; height:112px; border-radius:50%; object-fit:cover; box-shadow:0 0 0 4px rgba(255,255,255,.25)}
+.contact h3{margin:0; font:600 36px/1.1 var(--font-display)}
+.contact .role{font:400 22px/1.4 var(--font-body); color:rgba(255,255,255,.8); margin:0}
+.contact .mail{margin-top:auto; font:500 21px/1.3 var(--font-body); color:#fff; user-select:all; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,.12)}
+.res-note{position:absolute; left:120px; right:120px; bottom:132px; font:500 24px/1.4 var(--font-body); color:var(--gray-600); display:flex; align-items:center; gap:14px}
+.res-note .ic{width:24px; height:24px; color:var(--sb-blue)}
+
+/* ─────────── 11 · Calls to action ─────────── */
+.cta-grid{position:absolute; left:120px; right:120px; top:300px; bottom:130px; display:grid; grid-template-columns:1.25fr 1fr; gap:28px}
+.cta{padding:44px 48px; display:flex; flex-direction:column; gap:28px}
+.cta .step{display:flex; align-items:center; gap:18px}
+.cta .num{width:64px; height:64px; border-radius:18px; display:grid; place-items:center; flex:none;
+  font:600 30px/1 var(--font-display); color:#fff; background:var(--sb-gradient)}
+.cta h3{margin:0; font:600 46px/1.1 var(--font-display); letter-spacing:-.02em; color:var(--gray-900)}
+.lists{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:16px; flex:1; justify-content:space-between}
+.lists li{display:grid; grid-template-columns:110px 1fr; align-items:center; gap:18px; padding:24px 26px; border-radius:16px;
+  background:var(--sb-blue-50); font:400 25px/1.4 var(--font-body); color:var(--gray-700)}
+.lists li span{font:600 17px/1 var(--font-body); letter-spacing:.12em; text-transform:uppercase; color:var(--sb-blue)}
+.cta--pipe{position:relative; overflow:hidden; isolation:isolate; background:var(--sb-gradient); border:0; color:#fff}
+.cta--pipe > :not(.glow){position:relative; z-index:1}
+.cta--pipe h3{color:#fff}
+.cta--pipe .num{background:rgba(255,255,255,.16); box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}
+.cta--pipe p{margin:0; font:400 34px/1.45 var(--font-body); color:rgba(255,255,255,.9)}
+.cta--pipe .flow{margin-top:auto; display:flex; flex-wrap:wrap; gap:10px}
+.cta--pipe .flow span{padding:14px 20px; border-radius:999px; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22); font:500 21px/1 var(--font-body)}
+
+/* ─────────── 12 · Thank you (gradient) ─────────── */
+.thanks .logo{left:50%; top:96px; width:190px; transform:translateX(-50%)}
+.thanks-copy{position:absolute; left:0; right:0; top:330px; text-align:center; display:flex; flex-direction:column; align-items:center; gap:30px; color:#fff}
+.thanks-copy .h-hero{font-size:176px}
+.thanks-copy .lead{color:rgba(255,255,255,.82); max-width:900px; text-align:center}
+.thanks-contact{position:absolute; left:50%; bottom:110px; transform:translateX(-50%); display:flex; align-items:center; gap:20px;
+  padding:16px 34px 16px 16px; border-radius:999px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.22);
+  -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); color:#fff}
+.thanks-contact img{width:84px; height:84px; border-radius:50%; object-fit:cover}
+.thanks-contact b{display:block; font:600 27px/1.25 var(--font-display)}
+.thanks-contact span{font:400 22px/1.3 var(--font-body); color:rgba(255,255,255,.8); user-select:all}
+
+/* ───────────────────────── App shell: thumbnail rail + viewport ───────────────────────── */
+.app{display:flex; height:100%}
+.viewport{flex:1; min-width:0}
+.rail{--rail-w:252px; flex:none; width:var(--rail-w); height:100%; display:flex; flex-direction:column;
+  background:#0E0A22; border-right:1px solid rgba(255,255,255,.07); color:#fff;
+  transition:margin-left .55s var(--ease-out), opacity .4s var(--ease-out); z-index:15}
+.app.rail-closed .rail{margin-left:calc(var(--rail-w) * -1); opacity:0}
+:fullscreen .rail, .is-fs .rail{display:none}
+.rail-head{display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:16px 14px 12px 18px; border-bottom:1px solid rgba(255,255,255,.06)}
+.rail-actions{display:flex; align-items:center; gap:6px; flex:none}
+.kbd{font:600 11px/1 var(--font-body); letter-spacing:.04em; color:rgba(255,255,255,.78); padding:5px 7px; border-radius:6px;
+  background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.16); white-space:nowrap; font-variant-numeric:tabular-nums}
+.rail-fab{all:unset; box-sizing:border-box; cursor:pointer; position:fixed; z-index:22;
+  left:max(16px, calc(env(safe-area-inset-left, 0px) + 16px)); top:max(16px, calc(env(safe-area-inset-top, 0px) + 16px));
+  display:flex; align-items:center; gap:8px; padding:6px 10px 6px 8px; border-radius:12px; color:#fff;
+  background:rgba(18,12,42,.72); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); box-shadow:0 10px 30px -10px rgba(0,0,0,.45);
+  opacity:0; transform:translateY(-8px); pointer-events:none; transition:opacity .4s var(--ease-out), transform .4s var(--ease-out)}
+.rail-fab svg{width:18px; height:18px}
+.rail-fab.show{opacity:1; transform:none; pointer-events:auto}
+.rail-fab:hover{background:rgba(30,22,64,.86)}
+.rail-fab:focus-visible{outline:2px solid #8FB2FF; outline-offset:2px; opacity:1; transform:none; pointer-events:auto}
+.is-fs .rail-fab{display:none}
+.rail-head strong{font:600 13px/1.2 var(--font-display); letter-spacing:.01em; color:#fff; min-width:0}
+.rail-head small{display:block; font:500 11px/1.4 var(--font-body); color:rgba(255,255,255,.5); margin-top:3px; letter-spacing:.04em}
+.rail-list{flex:1; overflow-y:auto; padding:14px 14px 24px 8px; display:flex; flex-direction:column; gap:12px;
+  scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.18) transparent}
+.thumb{all:unset; box-sizing:border-box; cursor:pointer; display:grid; grid-template-columns:22px 1fr; gap:6px; align-items:start}
+.thumb .n{font:500 12px/1 var(--font-body); color:rgba(255,255,255,.45); text-align:right; padding-top:4px; font-variant-numeric:tabular-nums}
+.thumb .frame{position:relative; width:192px; aspect-ratio:16/9; max-width:100%; border-radius:6px; overflow:hidden; background:#fff;
+  box-shadow:0 0 0 1px rgba(255,255,255,.1); transition:box-shadow .25s var(--ease-out), transform .25s var(--ease-out)}
+.thumb:hover .frame{box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+.thumb:focus-visible .frame{box-shadow:0 0 0 2px #8FB2FF}
+.thumb[aria-current="true"] .n{color:#fff}
+.thumb[aria-current="true"] .frame{box-shadow:0 0 0 2.5px #7FA2FF, 0 8px 24px -6px rgba(127,162,255,.55)}
+.thumb .mini{position:absolute; left:0; top:0; width:1920px; height:1080px; transform-origin:0 0; pointer-events:none}
+.thumb .mini *{animation:none !important; transition:none !important}
+.thumb .mini .slide{visibility:visible}
+.icon-btn{all:unset; cursor:pointer; width:30px; height:30px; flex:none; border-radius:8px; display:grid; place-items:center; color:rgba(255,255,255,.7)}
+.icon-btn:hover{background:rgba(255,255,255,.08); color:#fff}
+.icon-btn:focus-visible{outline:2px solid #8FB2FF; outline-offset:1px}
+.icon-btn svg{width:18px; height:18px}
+
+/* ───────────────────────── Chrome (outside the stage) ───────────────────────── */
+.progress{position:absolute; left:0; right:0; top:0; height:3px; z-index:20; background:rgba(255,255,255,.06)}
+.progress i{display:block; height:100%; width:0; background:linear-gradient(90deg,#4F7BE0,#A86BD0); transition:width .9s var(--ease-out)}
+.hud{position:fixed; right:max(20px, env(safe-area-inset-right, 0px)); bottom:max(20px, env(safe-area-inset-bottom, 0px)); z-index:20;
+  display:flex; align-items:center; gap:6px; padding:6px; border-radius:999px;
+  background:rgba(18,12,42,.72); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  color:#fff; font:500 13px/1 var(--font-body); opacity:0; transform:translateY(8px);
+  transition:opacity .4s var(--ease-out), transform .4s var(--ease-out)}
+.hud.show,.hud:focus-within{opacity:1; transform:none}
+.hud button{all:unset; cursor:pointer; width:34px; height:34px; border-radius:50%; display:grid; place-items:center; color:#fff}
+.hud button:hover{background:rgba(255,255,255,.12)}
+.hud button:focus-visible{outline:2px solid #8FB2FF; outline-offset:2px}
+.hud .count{padding:0 10px; font-variant-numeric:tabular-nums; color:rgba(255,255,255,.8); min-width:56px; text-align:center}
+.hud svg{width:18px; height:18px}
+
+.notes-panel{position:fixed; left:50%; bottom:max(76px, calc(env(safe-area-inset-bottom, 0px) + 76px)); z-index:21;
+  width:min(760px, calc(100% - 32px)); transform:translate(-50%, 16px); opacity:0; pointer-events:none;
+  background:rgba(18,12,42,.92); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  color:#fff; border-radius:18px; padding:22px 26px; max-height:46vh; overflow:auto;
+  font:400 15px/1.6 var(--font-body); box-shadow:0 20px 60px rgba(0,0,0,.4);
+  transition:opacity .35s var(--ease-out), transform .35s var(--ease-out)}
+.notes-panel.open{opacity:1; transform:translate(-50%,0); pointer-events:auto}
+.notes-panel h4{margin:0 0 10px; font:600 12px/1 var(--font-body); letter-spacing:.14em; text-transform:uppercase; color:#A9B8E8}
+.notes-panel ul{margin:0; padding-left:18px} .notes-panel li{margin:4px 0}
+
+@media (prefers-reduced-motion:reduce){
+  .scene .ground,.scene .orb,.glow,.cursor-rig .blob,.cover-photo .img,.agenda-ghost,.wheel .spin{animation:none !important}
+  .rail,.viewport{transition:none !important}
+}
+</style>
+
+<div class="app" id="app">
+<aside class="rail" id="rail" aria-label="Slide thumbnails">
+  <div class="rail-head">
+    <div><strong>Saltbox Slides Demo</strong><small id="railCount">Slides</small></div>
+    <div class="rail-actions"><kbd class="kbd" data-shortcut>⌘B</kbd><button type="button" class="icon-btn" id="railClose" aria-label="Hide slide thumbnails"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v18M7.8 3h8.4c1.68 0 2.52 0 3.162.327a3 3 0 0 1 1.311 1.311C21 5.28 21 6.12 21 7.8v8.4c0 1.68 0 2.52-.327 3.162a3 3 0 0 1-1.311 1.311C18.72 21 17.88 21 16.2 21H7.8c-1.68 0-2.52 0-3.162-.327a3 3 0 0 1-1.311-1.311C3 18.72 3 17.88 3 16.2V7.8c0-1.68 0-2.52.327-3.162a3 3 0 0 1 1.311-1.311C5.28 3 6.12 3 7.8 3Z"/></svg></button></div>
+  </div>
+  <div class="rail-list" id="railList"></div>
+</aside>
+
+<main class="viewport" id="viewport">
+  <div class="progress" aria-hidden="true"><i></i></div>
+  <div class="stage" id="stage" role="region" aria-roledescription="slide deck" aria-label="Saltbox Slides demo deck">
+
+    <!-- Backgrounds from the Saltbox 2027 master theme -->
+    <div class="scenes" aria-hidden="true">
+      <div class="scene scene--light" data-scene="light"><div class="ground"></div><div class="orb orb--a"></div><div class="orb orb--b"></div><div class="hex"></div></div>
+      <div class="scene scene--dark" data-scene="dark"><div class="ground"></div>
+        <span class="glow" style="--size:900px; --c:#9CC4FF; --o:.95; --blur:80px; left:500px; top:760px; --dx:-60px; --dy:-30px; --t1:24s; --t2:35s"></span>
+        <span class="glow" style="--size:640px; --c:#FF7AC8; --o:.8; --blur:80px; left:300px; top:840px; --dx:70px; --dy:-20px; --t1:31s; --t2:41s"></span>
+        <span class="glow" style="--size:520px; --c:#B9A2FF; --o:.55; --blur:90px; left:1200px; top:-180px; --dx:-50px; --dy:40px; --t1:29s; --t2:44s"></span>
+
+        <div class="cursor-rig" aria-hidden="true">
+          <div class="halo"><span class="blob" style="--size:560px; --c:#7FA6FF; --o:.6; --blur:90px"></span></div>
+          <div class="core"><span class="blob" style="--size:640px; --c:#CFE0FF; --o:1; --blur:70px"></span><span class="blob blob--b" style="--size:420px; --c:#FF8BD1; --o:.9; --blur:60px"></span></div>
+        </div>
+        <div class="hex"></div></div>
+      <div class="scene scene--gradient" data-scene="gradient"><div class="ground"></div>
+        <span class="glow" style="--size:1000px; --c:#FFFFFF; --o:.5; --blur:100px; left:-200px; top:-300px; --dx:60px; --dy:40px; --t1:28s; --t2:40s"></span>
+        <span class="glow" style="--size:800px; --c:#FF6FB5; --o:.6; --blur:100px; left:1300px; top:600px; --dx:-60px; --dy:-30px; --t1:33s; --t2:45s"></span>
+        <div class="cursor-rig" aria-hidden="true">
+          <div class="halo"><span class="blob" style="--size:600px; --c:#FFFFFF; --o:.6; --blur:90px"></span></div>
+          <div class="core"><span class="blob" style="--size:700px; --c:#FFFFFF; --o:1; --blur:70px"></span><span class="blob blob--b" style="--size:460px; --c:#FFB3E2; --o:.9; --blur:60px"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═════════════════════ 01 · COVER (layout: cover) ═════════════════════ -->
+    <section class="slide cover" data-scene="dark" data-title="Cover" data-cursor-light>
+      <div class="cover-photo" data-anim="wipe-left"><div class="img"></div></div>
+      <svg class="cover-edge" viewBox="0 0 1920 1080" aria-hidden="true">
+        <line data-anim="draw" x1="1352" y1="0" x2="1060" y2="1080" stroke="url(#edgeGrad)" stroke-width="2"/>
+        <defs><linearGradient id="edgeGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9DB8FF" stop-opacity=".0"/><stop offset=".5" stop-color="#C9B5FF" stop-opacity=".7"/><stop offset="1" stop-color="#9DB8FF" stop-opacity=".0"/></linearGradient></defs>
+      </svg>
+      <a class="logo" data-anim="fade"><img src="assets/saltbox-logo-white.png" alt="Saltbox"></a>
+      <div class="cover-copy">
+        <p class="eyebrow" data-anim="rise"><span class="rule" data-anim="grow"></span>Saltbox Mgmt · Team toolkit</p>
+        <h1 class="h-hero" data-anim="lines">
+          <span class="ln"><span>Saltbox Slides</span></span>
+        </h1>
+        <p class="lead" data-anim="rise">On-brand presentations that move. Tell Claude what you need and get a deck you can present, share, and edit by chat.</p>
+      </div>
+      <div class="cover-meta" data-anim="rise">
+        <dl>
+          <div><dt>Made with</dt><dd>Claude + the saltbox-slides skill</dd></div>
+          <div><dt>Format</dt><dd>One HTML file</dd></div>
+        </dl>
+      </div>
+      <aside class="notes"><ul>
+        <li>This demo deck is built with the same template the skill uses. Every layout you see here is available to you.</li>
+        <li>Move your mouse: the light on this slide follows the cursor.</li>
+      </ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 02 · AGENDA (layout: agenda) ═════════════════════ -->
+    <section class="slide agenda" data-scene="light" data-title="How it works">
+      <p class="agenda-ghost" data-anim="ghost" aria-hidden="true">Steps</p>
+      <a class="logo" data-anim="fade"><img src="assets/saltbox-logo-blue.png" alt="Saltbox"></a>
+      <div class="agenda-head">
+        <p class="eyebrow" data-anim="rise">How it works</p>
+        <h2 class="h1" data-anim="lines"><span class="ln"><span>Five steps</span></span></h2>
+        <p class="body" data-anim="rise" style="font-size:24px;max-width:480px">From a rough idea or an old deck to a live link, in one conversation.</p>
+      </div>
+      <ol class="agenda-list" data-anim="rows">
+        <li><span class="num grad-text">01</span><div><p class="t">Tell Claude what you need</p><p class="d">Notes, an old deck, a PowerPoint, or just a topic</p></div></li>
+        <li><span class="num grad-text">02</span><div><p class="t">Answer a few questions</p><p class="d">Audience, goal, how it will be presented, and the facts to check</p></div></li>
+        <li><span class="num grad-text">03</span><div><p class="t">Review the first three slides</p><p class="d">Approve the look before the whole deck is built</p></div></li>
+        <li><span class="num grad-text">04</span><div><p class="t">Get the full deck</p><p class="d">One HTML file, with speaker notes and thumbnails</p></div></li>
+        <li><span class="num grad-text">05</span><div><p class="t">Share it</p><p class="d">Open it locally, or deploy it to Vercel for a link</p></div></li>
+      </ol>
+      <aside class="notes"><ul><li>The skill always stops after three slides so you can approve the direction cheaply.</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 03 · MEET SALTBOX (layout: statement + wheel) ═════════════════════ -->
+    <section class="slide meet" data-scene="light" data-title="Meet Saltbox">
+      <div class="meet-copy">
+        <p class="eyebrow" data-anim="rise">Layout · Statement and wheel</p>
+        <h2 class="h1" data-anim="lines"><span class="ln"><span>Meet</span></span><span class="ln"><span>Saltbox</span></span></h2>
+        <p class="statement" data-anim="rise"><span class="glow" style="--size:380px; --c:#FFFFFF; --o:.6; --blur:50px; right:-90px; top:-170px; --dx:-50px; --dy:30px; --t1:22s; --t2:31s"></span><span class="glow" style="--size:300px; --c:#E9A6FF; --o:.45; --blur:50px; left:-120px; bottom:-170px; --dx:40px; --dy:-20px; --t1:27s; --t2:36s"></span><span>We deploy intuitive, architecturally sound Salesforce solutions that are easy to manage, built to scale, and ready for the long term.</span></p>
+        <dl class="proof" data-anim="rows">
+          <div><dt>Certifications across the Salesforce platform</dt><dd class="grad-text" data-count="250" data-suffix="+">250+</dd></div>
+          <div><dt>Customer satisfaction score</dt><dd class="grad-text" data-count="5" data-decimals="1">5.0</dd></div>
+          <div><dt>Delivery centers for a follow-the-sun model</dt><dd class="small grad-text">Global</dd></div>
+        </dl>
+        <p class="backed" data-anim="rise"><i data-icon="Star01"></i>Backed by Salesforce Ventures</p>
+      </div>
+      <div class="wheel" id="wheel" aria-label="Saltbox services">
+        <svg class="rings" viewBox="0 0 1080 960" aria-hidden="true">
+          <circle data-anim="draw" cx="540" cy="480" r="290" fill="none" stroke="#DCE4F4" stroke-width="2"/>
+          <g class="spin"><circle cx="540" cy="480" r="200" fill="none" stroke="#B9C7E6" stroke-width="1.5" stroke-dasharray="2 10" stroke-linecap="round"/></g>
+          <g id="spokes"></g>
+        </svg>
+        <div class="hub" data-anim="pop">
+          <span class="glow" style="--size:240px; --c:#FFFFFF; --o:.5; --blur:40px; right:-90px; top:-100px; --dx:-30px; --dy:30px; --t1:21s; --t2:29s"></span>
+          <img src="assets/saltbox-logo-white.png" alt="Saltbox">
+          <span>Platform expertise<br>Data · Cloud · Agentforce</span>
+        </div>
+        <div id="nodes"></div>
+      </div>
+      <img class="foot" src="assets/saltbox-logo-blue.png" alt="">
+      <span class="folio"></span>
+      <aside class="notes"><ul><li>The wheel is generated from the SERVICES list in the script. Ask Claude to change labels or icons.</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 04 · TILE GRID (layout: tiles) ═════════════════════ -->
+    <section class="slide" data-scene="light" data-title="Layouts in the kit">
+      <div class="head">
+        <p class="eyebrow" data-anim="rise">Layout · Tile grid</p>
+        <h2 class="h2" data-anim="lines"><span class="ln"><span>Layouts in the kit</span></span></h2>
+        <p class="sub" data-anim="rise">Claude picks the layout that fits your content. You can also ask for one by name.</p>
+      </div>
+      <ul class="ind-grid" data-anim="rows">
+        <li class="card ind"><span class="chip-ic"><i data-icon="Image01"></i></span><h3>Cover<small>Dark, photo, cursor light</small></h3></li>
+        <li class="card ind"><span class="chip-ic"><i data-icon="List"></i></span><h3>Agenda<small>Numbered steps</small></h3></li>
+        <li class="card ind"><span class="chip-ic"><i data-icon="Target04"></i></span><h3>Statement and wheel<small>Proof stats and an orbit</small></h3></li>
+        <li class="card ind"><span class="chip-ic"><i data-icon="LayoutGrid01"></i></span><h3>Tile grid<small>Up to 8 items with logos</small></h3></li>
+        <li class="card ind"><span class="chip-ic"><i data-icon="Rows01"></i></span><h3>Signal cards<small>Six titled lists</small></h3></li>
+        <li class="card ind"><span class="chip-ic"><i data-icon="LayersThree01"></i></span><h3>Section divider<small>Dark, three glass cards</small></h3></li>
+        <li class="card ind"><span class="chip-ic"><i data-icon="LayoutLeft"></i></span><h3>Panel and columns<small>A story panel plus two lists</small></h3></li>
+        <li class="card ind"><span class="chip-ic"><i data-icon="Flag01"></i></span><h3>Steps and thank you<small>Calls to action, closing</small></h3></li>
+      </ul>
+      <img class="foot" src="assets/saltbox-logo-blue.png" alt="">
+      <span class="folio"></span>
+      <aside class="notes"><ul><li>Every layout is documented in references/layouts.md in the repo.</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 05 · SIGNAL CARDS (layout: cards) ═════════════════════ -->
+    <section class="slide" data-scene="light" data-title="What Claude will ask">
+      <div class="head">
+        <p class="eyebrow" data-anim="rise">Layout · Signal cards</p>
+        <h2 class="h2" data-anim="lines"><span class="ln"><span>What Claude will ask you</span></span></h2>
+      </div>
+      <div class="sig-grid" data-anim="rows">
+        <article class="card sig"><header><span class="chip-ic"><i data-icon="Users03"></i></span><h3>Audience<small>Who is in the room</small></h3></header><ul class="list"><li>Prospects, clients, AEs, or leadership</li><li>Presented live or read alone</li></ul></article>
+        <article class="card sig"><header><span class="chip-ic"><i data-icon="Target04"></i></span><h3>Goal<small>One sentence</small></h3></header><ul class="list"><li>What should people do after the last slide?</li></ul></article>
+        <article class="card sig"><header><span class="chip-ic"><i data-icon="File06"></i></span><h3>Source<small>What you have</small></h3></header><ul class="list"><li>Notes, a doc, a Google Slides link, or a .pptx</li><li>Keep the words, or tighten them</li></ul></article>
+        <article class="card sig"><header><span class="chip-ic"><i data-icon="CheckCircle"></i></span><h3>Facts to confirm<small>Before anything ships</small></h3></header><ul class="list"><li>Numbers that disagree between sources</li><li>Years, names, and client logos you can show</li></ul></article>
+        <article class="card sig"><header><span class="chip-ic"><i data-icon="Clock"></i></span><h3>Length<small>Time and depth</small></h3></header><ul class="list"><li>How many minutes you have</li><li>Which parts matter most</li></ul></article>
+        <article class="card sig"><header><span class="chip-ic"><i data-icon="Share07"></i></span><h3>Sharing<small>Where it goes</small></h3></header><ul class="list"><li>A local file, a Claude link, or Vercel</li><li>Public or internal content</li></ul></article>
+      </div>
+      <img class="foot" src="assets/saltbox-logo-blue.png" alt="">
+      <span class="folio"></span>
+      <aside class="notes"><ul><li>The full question list lives in references/questions.md.</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 06 · DIVIDER (layout: divider) ═════════════════════ -->
+    <section class="slide divider" data-scene="dark" data-title="Three ways to start">
+      <img class="logo" src="assets/saltbox-logo-white.png" alt="Saltbox" data-anim="fade">
+      <div class="head">
+        <p class="eyebrow" data-anim="rise">Layout · Section divider</p>
+        <h2 class="h2" data-anim="lines"><span class="ln"><span>Three ways to start</span></span></h2>
+      </div>
+      <div class="plays" data-anim="rows">
+        <article class="play-card"><span class="glow" style="--size:320px; --c:#FFFFFF; --o:.35; --blur:50px; right:-120px; top:-140px; --t1:23s; --t2:33s"></span><span class="chip-ic"><i data-icon="Edit05"></i></span><span class="k">Start 1</span><h3>From notes or a topic</h3><p>"Use saltbox-slides to build a 10-slide deck about our Q3 delivery wins."</p></article>
+        <article class="play-card"><span class="glow" style="--size:320px; --c:#C9B5FF; --o:.4; --blur:50px; left:-120px; bottom:-160px; --t1:27s; --t2:37s"></span><span class="chip-ic"><i data-icon="RefreshCw01"></i></span><span class="k">Start 2</span><h3>From an existing deck</h3><p>"Use saltbox-slides to redesign this Google Slides deck in our 2027 theme."</p></article>
+        <article class="play-card"><span class="glow" style="--size:320px; --c:#9CC4FF; --o:.4; --blur:50px; right:-140px; bottom:-150px; --t1:25s; --t2:41s"></span><span class="chip-ic"><i data-icon="FileAttachment02"></i></span><span class="k">Start 3</span><h3>From a PowerPoint</h3><p>"Use saltbox-slides to convert the attached .pptx and keep my speaker notes."</p></article>
+      </div>
+      <aside class="notes"><ul><li>Name the skill in your request so Claude loads it: "Use saltbox-slides to …"</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 07 · PANEL + COLUMNS (layout: play) ═════════════════════ -->
+    <section class="slide play" data-scene="light" data-title="Convert a PowerPoint">
+      <div class="pl-panel" data-anim="panel">
+        <span class="glow" style="--size:520px; --c:#FFFFFF; --o:.5; --blur:70px; right:-220px; top:-200px; --t1:24s; --t2:35s"></span>
+        <span class="k">Layout · Panel and columns</span>
+        <h2>Convert a PowerPoint</h2>
+        <div class="use"><span>Example request</span><h3>"Convert sales-kickoff.pptx with saltbox-slides"</h3><p>Claude extracts every slide's text, images, and speaker notes, shows you what it found, then rebuilds the deck on the Saltbox theme.</p></div>
+      </div>
+      <div class="pl-body">
+        <div class="pl-col" data-anim="rows">
+          <h4><span class="chip-ic"><i data-icon="CheckCircle"></i></span>What you get</h4>
+          <ul class="list"><li>Your content, tightened and restructured if you want</li><li>Speaker notes carried over</li><li>Images reused where they still fit</li><li>Brand backgrounds, type, and icons</li></ul>
+        </div>
+        <div class="pl-col" data-anim="rows">
+          <h4><span class="chip-ic"><i data-icon="LayersThree01"></i></span>What Claude does</h4>
+          <ul class="sku">
+            <li><b>Extract</b>Runs scripts/extract-pptx.py to read slides, notes, and images</li>
+            <li><b>Confirm</b>Shows the outline and flags conflicting facts</li>
+            <li><b>Build</b>Three slides first, then the rest after you approve</li>
+            <li><b>Deliver</b>One HTML file, plus a Vercel link if you want one</li>
+          </ul>
+        </div>
+      </div>
+      <img class="foot" src="assets/saltbox-logo-blue.png" alt="" style="left:720px">
+      <span class="folio"></span>
+      <aside class="notes"><ul><li>Google Slides works too: share a link, or download it as .pptx and attach it.</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 08 · RESOURCE CARDS (layout: cards + contact) ═════════════════════ -->
+    <section class="slide" data-scene="light" data-title="Keyboard shortcuts">
+      <div class="head">
+        <p class="eyebrow" data-anim="rise">Layout · Resource cards</p>
+        <h2 class="h2" data-anim="lines"><span class="ln"><span>Keyboard shortcuts</span></span></h2>
+      </div>
+      <div class="res-grid" data-anim="rows">
+        <article class="card res"><span class="chip-ic"><i data-icon="ArrowRight"></i></span><h3>Move between slides</h3><p>→ or ↑ next · ← or ↓ back · Space next · Home and End jump · 1–9 go to a slide</p></article>
+        <article class="card res"><span class="chip-ic"><i data-icon="LayoutLeft"></i></span><h3>Thumbnails</h3><p>⌘B on Mac, Ctrl+B on Windows. Click any thumbnail to jump to it.</p></article>
+        <article class="card res"><span class="chip-ic"><i data-icon="Maximize01"></i></span><h3>Present</h3><p>F for fullscreen, which hides the thumbnails. N shows speaker notes.</p></article>
+        <article class="contact"><span class="glow" style="--size:300px; --c:#FFFFFF; --o:.45; --blur:50px; right:-110px; top:-120px; --t1:22s; --t2:32s"></span>
+          <span class="k">Need help?</span>
+          <div><h3>Saltbox Design</h3><p class="role">Owners of the saltbox-slides skill and the brand guideline</p></div>
+          <span class="mail">github.com/hurisb/saltbox-slides</span>
+        </article>
+      </div>
+      <p class="res-note" data-anim="rise"><i data-icon="Zap"></i>Clicking the right two thirds of a slide also moves forward. Swipe works on touch screens.</p>
+      <img class="foot" src="assets/saltbox-logo-blue.png" alt="">
+      <span class="folio"></span>
+      <aside class="notes"><ul><li>The controls in the bottom right appear when you move the mouse and hide after 3 seconds.</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 09 · STEPS (layout: two-step CTA) ═════════════════════ -->
+    <section class="slide" data-scene="light" data-title="Your next moves">
+      <div class="head">
+        <p class="eyebrow" data-anim="rise">Layout · Two-step call to action</p>
+        <h2 class="h2" data-anim="lines"><span class="ln"><span>Your first deck</span></span></h2>
+      </div>
+      <div class="cta-grid" data-anim="rows">
+        <article class="card cta">
+          <div class="step"><span class="num">1</span><h3>Install the skill</h3></div>
+          <ul class="lists">
+            <li><span>Claude.ai</span>Settings → Capabilities → Skills → upload saltbox-slides.zip</li>
+            <li><span>Claude Code</span>Clone the repo into ~/.claude/skills/saltbox-slides</li>
+            <li><span>Check</span>Ask Claude: "Which skills can you use?"</li>
+          </ul>
+        </article>
+        <article class="card cta cta--pipe"><span class="glow" style="--size:420px; --c:#FFFFFF; --o:.45; --blur:60px; right:-160px; top:-160px; --t1:24s; --t2:34s"></span><span class="glow" style="--size:360px; --c:#FF8AD0; --o:.4; --blur:60px; left:-140px; bottom:-160px; --t1:29s; --t2:39s"></span>
+          <div class="step"><span class="num">2</span><h3>Ask for a deck</h3></div>
+          <p>"Use saltbox-slides to turn these notes into a deck for a client kickoff."</p>
+          <div class="flow"><span>Answer the questions</span><span>Approve 3 slides</span><span>Share the link</span></div>
+        </article>
+      </div>
+      <img class="foot" src="assets/saltbox-logo-blue.png" alt="">
+      <span class="folio"></span>
+      <aside class="notes"><ul><li>The README in the repo walks through installation with screenshots-free, plain steps.</li></ul></aside>
+    </section>
+
+    <!-- ═════════════════════ 10 · THANK YOU (layout: thanks) ═════════════════════ -->
+    <section class="slide thanks" data-scene="gradient" data-title="Thank you" data-cursor-light>
+      <img class="logo" src="assets/saltbox-logo-white.png" alt="Saltbox" data-anim="fade">
+      <div class="thanks-copy">
+        <h2 class="h-hero" data-anim="lines"><span class="ln"><span>Thank you</span></span></h2>
+        <p class="lead" data-anim="rise">Now go make something that moves.</p>
+      </div>
+      <div class="thanks-contact" data-anim="rise" style="padding-left:30px">
+        <div><b>saltbox-slides</b><span>github.com/hurisb/saltbox-slides</span></div>
+      </div>
+      <aside class="notes"><ul><li>Move the mouse: this slide has the cursor light too.</li></ul></aside>
+    </section>
+
+  </div>
+</main>
+</div>
+
+<nav class="hud" id="hud" aria-label="Slide controls">
+    <button type="button" id="prevBtn" aria-label="Previous slide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+  <span class="count" id="count">1 / 1</span>
+  <button type="button" id="nextBtn" aria-label="Next slide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+  <button type="button" id="notesBtn" aria-label="Speaker notes (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2.27V6.4c0 .56 0 .84.109 1.054a1 1 0 0 0 .437.437c.214.11.494.11 1.054.11h4.13M16 13H8m8 4H8m2-8H8m6-7H8.8c-1.68 0-2.52 0-3.162.327a3 3 0 0 0-1.311 1.311C4 4.28 4 5.12 4 6.8v10.4c0 1.68 0 2.52.327 3.162a3 3 0 0 0 1.311 1.311C6.28 22 7.12 22 8.8 22h6.4c1.68 0 2.52 0 3.162-.327a3 3 0 0 0 1.311-1.311C20 19.72 20 18.88 20 17.2V8l-6-6Z"/></svg></button>
+  <button type="button" id="fsBtn" aria-label="Fullscreen (F)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7.8c-1.68 0-2.52 0-3.162.327a3 3 0 0 0-1.311 1.311C3 5.28 3 6.12 3 7.8V8m5 13h-.2c-1.68 0-2.52 0-3.162-.327a3 3 0 0 1-1.311-1.311C3 18.72 3 17.88 3 16.2V16m18-8v-.2c0-1.68 0-2.52-.327-3.162a3 3 0 0 0-1.311-1.311C18.72 3 17.88 3 16.2 3H16m5 13v.2c0 1.68 0 2.52-.327 3.162a3 3 0 0 1-1.311 1.311C18.72 21 17.88 21 16.2 21H16"/></svg></button>
+</nav>
+<button type="button" class="rail-fab" id="railFab" aria-label="Show slide thumbnails"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v18M7.8 3h8.4c1.68 0 2.52 0 3.162.327a3 3 0 0 1 1.311 1.311C21 5.28 21 6.12 21 7.8v8.4c0 1.68 0 2.52-.327 3.162a3 3 0 0 1-1.311 1.311C18.72 21 17.88 21 16.2 21H7.8c-1.68 0-2.52 0-3.162-.327a3 3 0 0 1-1.311-1.311C3 18.72 3 17.88 3 16.2V7.8c0-1.68 0-2.52.327-3.162a3 3 0 0 1 1.311-1.311C5.28 3 6.12 3 7.8 3Z"/></svg><kbd class="kbd" data-shortcut>⌘B</kbd></button>
+<div class="notes-panel" id="notesPanel" role="dialog" aria-label="Speaker notes"><h4 id="notesTitle">Notes</h4><div id="notesBody"></div></div>
+
+<script>
+/* ═════════════════════════ CONTENT DATA ═════════════════════════ */
+// Services wheel (slide 03). Edit labels or icons here; icons are Untitled UI line icon names.
+const SERVICES = [
+  { label:"Technology Enablement & Implementation", icon:"Tool02" },
+  { label:"Buyer Experience Strategy",              icon:"Target04" },
+  { label:"Marketing Cloud",                        icon:"Announcement02" },
+  { label:"Sales Cloud & Revenue Cloud",            icon:"BarChartSquare02" },
+  { label:"Service Cloud",                          icon:"Headphones02" },
+  { label:"Experience Cloud",                       icon:"Users01" },
+  { label:"Commerce Cloud & Order Management",      icon:"ShoppingCart01" },
+  { label:"Integration",                            icon:"Dataflow03" },
+  { label:"Managed Services",                       icon:"ShieldTick" },
+];
+const ICONS = /*__ICON_TABLE__*/{};
+
+/* ═════════════════════════ ENGINE ═════════════════════════ */
+(() => {
+  const W = 1920, H = 1080;
+  const stage = document.getElementById('stage');
+  const viewport = document.getElementById('viewport');
+  const slides = [...stage.querySelectorAll('.slide')];
+  const scenes = Object.fromEntries([...stage.querySelectorAll('.scene')].map(s => [s.dataset.scene, s]));
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const hasGsap = typeof window.gsap !== 'undefined';
+  let index = -1, busy = false, queued = null;
+
+  /* ── Fit the 1920×1080 stage to the window ── */
+  function fit(){
+    const vw = viewport.clientWidth, vh = viewport.clientHeight;
+    const s = Math.min(vw / W, vh / H);
+    stage.style.transform = `translate(${-W*s/2}px, ${-H*s/2}px) scale(${s})`;
+  }
+  addEventListener('resize', fit); fit();
+  if ('ResizeObserver' in window) new ResizeObserver(fit).observe(viewport);
+
+  // Page numbers on content slides
+  slides.forEach((s, i) => { const f = s.querySelector('.folio'); if (f) f.textContent = String(i + 1).padStart(2, '0'); });
+
+  /* ── Build the services wheel from data ── */
+  (function buildWheel(){
+    const nodes = document.getElementById('nodes'), spokes = document.getElementById('spokes');
+    if (!nodes) return;
+    const cx = 540, cy = 480, r = 290, n = SERVICES.length;
+    SERVICES.forEach((s, i) => {
+      const a = (-90 + i * 360 / n) * Math.PI / 180;
+      const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+      const c = Math.cos(a), sn = Math.sin(a);
+      const el = document.createElement('div');
+      el.className = 'node'; el.style.left = x + 'px'; el.style.top = y + 'px';
+      const gap = 52;
+      let lx = c * gap, ly = sn * gap, ta = 'center', tx = '-50%', ty = '-50%';
+      if (c > .35)  { ta = 'left';  tx = '0%'; }
+      if (c < -.35) { ta = 'right'; tx = '-100%'; }
+      if (sn < -.6) { ty = '-100%'; }
+      if (sn > .6)  { ty = '0%'; }
+      el.innerHTML = `<div class="dot">${ICONS[s.icon] || ''}</div>
+        <div class="lbl" style="left:${lx}px;top:${ly}px;text-align:${ta};transform:translate(${tx},${ty})">${s.label}</div>`;
+      nodes.appendChild(el);
+      const sp = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      const ir = 130 + 8, or = r - 38;
+      sp.setAttribute('x1', cx + ir * c); sp.setAttribute('y1', cy + ir * sn);
+      sp.setAttribute('x2', cx + or * c); sp.setAttribute('y2', cy + or * sn);
+      sp.setAttribute('stroke', '#DCE4F4'); sp.setAttribute('stroke-width', '1.5');
+      spokes.appendChild(sp);
+    });
+    document.getElementById('wheel').dataset.anim = 'wheel';
+  })();
+
+  /* ── ENTRANCES: what each data-anim value does ──
+     Elements animate in DOM order, each starting ~0.09s after the previous.
+     Add data-at="0.6" to pin an element to an exact time (seconds). */
+  const E = 'expo.out';
+  const ENTRANCES = {
+    'fade':  (el) => gsap.from(el, { opacity:0, duration:1.0, ease:'power2.out' }),
+    'rise':  (el) => gsap.from(el, { y:36, opacity:0, duration:1.1, ease:E }),
+    'lines': (el) => gsap.from(el.querySelectorAll('.ln > span'), { yPercent:115, duration:1.25, ease:E, stagger:.09 }),
+    'rows':  (el) => gsap.from(el.children, { y:28, opacity:0, duration:1.0, ease:E, stagger:.08 }),
+    'grow':  (el) => gsap.from(el, { scaleX:0, duration:1.2, ease:'expo.inOut' }),
+    'pop':   (el) => gsap.from(el, { scale:.6, opacity:0, duration:1.3, ease:'expo.out' }),
+    'ghost': (el) => gsap.from(el, { xPercent:-6, opacity:0, duration:2.2, ease:'power3.out' }),
+    'draw':  (el) => { const L = el.getTotalLength ? el.getTotalLength() : 2000;
+                       return gsap.fromTo(el, { strokeDasharray:L, strokeDashoffset:L }, { strokeDashoffset:0, duration:1.6, ease:'expo.inOut' }); },
+    'wipe-left': (el) => gsap.fromTo(el, { clipPath:'polygon(100% 0,100% 0,100% 100%,100% 100%)' },
+                       { clipPath:'polygon(34% 0,100% 0,100% 100%,0% 100%)', duration:1.6, ease:'expo.inOut' }),
+    'panel': (el) => { const tl = gsap.timeline();
+      tl.fromTo(el, { clipPath:'inset(0 100% 0 0)' }, { clipPath:'inset(0 0% 0 0)', duration:1.3, ease:'expo.inOut' })
+        .from(el.querySelectorAll(':scope > :not(.glow)'), { x:-30, opacity:0, duration:1, ease:E, stagger:.08 }, .45);
+      return tl; },
+    'wheel': (el) => {
+      const tl = gsap.timeline();
+      tl.from(el.querySelectorAll('#spokes line'), { opacity:0, duration:.8, stagger:.05, ease:'power2.out' }, .3)
+        .from(el.querySelectorAll('.node .dot'), { scale:0, opacity:0, duration:.9, stagger:.07, ease:'back.out(1.6)' }, .35)
+        .from(el.querySelectorAll('.node .lbl'), { opacity:0, x:(i)=>0, duration:.8, stagger:.07, ease:'power2.out' }, .55);
+      return tl;
+    },
+  };
+
+  function countUp(slide){
+    slide.querySelectorAll('[data-count]').forEach(el => {
+      const end = parseFloat(el.dataset.count), dec = +(el.dataset.decimals || 0), suf = el.dataset.suffix || '';
+      const o = { v:0 }; el.textContent = (0).toFixed(dec) + suf;
+      gsap.to(o, { v:end, duration:1.6, delay:.7, ease:'power3.out',
+        onUpdate:() => el.textContent = o.v.toFixed(dec) + suf });
+    });
+  }
+
+  function enter(slide){
+    const tl = gsap.timeline();
+    let t = 0;
+    slide.querySelectorAll('[data-anim]').forEach(el => {
+      const fn = ENTRANCES[el.dataset.anim]; if (!fn) return;
+      const at = el.dataset.at !== undefined ? parseFloat(el.dataset.at) : t;
+      tl.add(fn(el), at); t = at + .09;
+    });
+    countUp(slide);
+    return tl;
+  }
+
+  /* ── Go to a slide ── */
+  function setScene(name, instant){
+    Object.entries(scenes).forEach(([k, el]) => {
+      const on = k === name;
+      if (!hasGsap || instant || reduce){ el.classList.toggle('is-on', on); el.style.opacity = on ? 1 : 0; return; }
+      if (on){
+        el.classList.add('is-on');
+        gsap.fromTo(el, { opacity:0, scale:1.06 }, { opacity:1, scale:1, duration:1.5, ease:'expo.out', overwrite:true });
+      } else if (el.classList.contains('is-on')) {
+        gsap.to(el, { opacity:0, scale:.98, duration:1.0, ease:'power2.inOut', overwrite:true,
+          onComplete:() => el.classList.remove('is-on') });
+      }
+    });
+  }
+
+  function go(n){
+    n = Math.max(0, Math.min(slides.length - 1, n));
+    if (n === index) return;
+    if (busy){ queued = n; return; }
+    const prev = slides[index], next = slides[n];
+    const dir = n > index ? 1 : -1;
+    const sceneChange = !prev || prev.dataset.scene !== next.dataset.scene;
+    index = n; busy = true;
+    updateChrome();
+    setCursorLight(next.hasAttribute('data-cursor-light'));
+
+    if (!hasGsap || reduce){
+      if (prev) prev.classList.remove('is-active');
+      next.classList.add('is-active'); setScene(next.dataset.scene, true);
+      busy = false; return;
+    }
+
+    const tl = gsap.timeline({ onComplete(){ busy = false; if (queued !== null){ const q = queued; queued = null; go(q); } } });
+    if (prev){
+      // Content leaves. If the background stays, this is the only thing that moves.
+      tl.to(prev, { opacity:0, y:-28 * dir, duration:.5, ease:'power3.in' }, 0)
+        .add(() => { prev.classList.remove('is-active'); gsap.set(prev, { clearProps:'opacity,transform' }); });
+    }
+    const inAt = prev ? (sceneChange ? .55 : .38) : .25;
+    if (sceneChange) tl.add(() => setScene(next.dataset.scene), prev ? .25 : 0);
+    tl.add(() => {
+      next.classList.add('is-active');
+      gsap.set(next, { opacity:1, y:0 });
+      enter(next);
+    }, inAt);
+    tl.to({}, { duration:.9 }); // let the entrance breathe before accepting the next jump
+  }
+
+  /* ── Cursor light ──
+     Two springs chase the pointer at different speeds (core fast, halo lazy).
+     Velocity stretches the rig along the direction of travel, then it relaxes.
+     With no pointer movement for a few seconds the light drifts on its own path. */
+  const rigs = [...stage.querySelectorAll('.scene .cursor-rig')].map(el => ({
+    el, core: el.querySelector('.core'), halo: el.querySelector('.halo') }));
+  const cl = { tx:760, ty:820, x:760, y:820, hx:760, hy:820, vx:0, vy:0, sq:0, ang:0, last:0, on:false, raf:0 };
+  function stagePoint(e){
+    const r = stage.getBoundingClientRect();
+    return [ (e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H ];
+  }
+  addEventListener('pointermove', e => { const [x, y] = stagePoint(e); cl.tx = x; cl.ty = y; cl.last = performance.now(); }, { passive:true });
+  function tickLight(t){
+    if (!cl.on) { cl.raf = 0; return; }
+    const idle = t - cl.last > 3500;
+    if (idle){ // wander on a slow figure-eight when nobody is steering
+      const k = t / 1000;
+      cl.tx = 900 + Math.sin(k * .35) * 420 + Math.sin(k * .9) * 60;
+      cl.ty = 700 + Math.sin(k * .7) * 180;
+    }
+    const px = cl.x, py = cl.y;
+    cl.x += (cl.tx - cl.x) * (idle ? .02 : .075);
+    cl.y += (cl.ty - cl.y) * (idle ? .02 : .075);
+    cl.hx += (cl.x - cl.hx) * .035; cl.hy += (cl.y - cl.hy) * .035;
+    const vx = cl.x - px, vy = cl.y - py, speed = Math.hypot(vx, vy);
+    cl.sq += (Math.min(speed / 26, .55) - cl.sq) * .08;          // stretch amount, eased
+    if (speed > .3) { const a = Math.atan2(vy, vx) * 180 / Math.PI;
+      let d = a - cl.ang; d = ((d + 540) % 360) - 180; cl.ang += d * .12; }
+    const sx = 1 + cl.sq, sy = 1 - cl.sq * .45;
+    rigs.forEach(r => {
+      r.el.style.transform = 'translate3d(0,0,0)';
+      r.core.style.transform = `translate3d(${cl.x}px,${cl.y}px,0) rotate(${cl.ang}deg) scale(${sx},${sy})`;
+      r.halo.style.transform = `translate3d(${cl.hx}px,${cl.hy}px,0) rotate(${cl.ang}deg) scale(${1 + cl.sq * .6},${1 - cl.sq * .3})`;
+    });
+    cl.raf = requestAnimationFrame(tickLight);
+  }
+  function setCursorLight(on){
+    stage.classList.toggle('cursor-on', on);
+    if (reduce) return;
+    cl.on = on;
+    if (on && !cl.raf) cl.raf = requestAnimationFrame(tickLight);
+  }
+
+  /* ── Thumbnail rail (like Google Slides / PowerPoint) ──
+     Each thumbnail is a live, scaled-down copy of its slide and background, frozen at its final state. */
+  const app = document.getElementById('app'), railList = document.getElementById('railList');
+  const thumbs = slides.map((slide, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'thumb';
+    btn.setAttribute('aria-label', `Slide ${i + 1}: ${slide.dataset.title || ''}`);
+    btn.innerHTML = `<span class="n">${i + 1}</span><span class="frame"><span class="mini"></span></span>`;
+    const mini = btn.querySelector('.mini');
+    const sc = scenes[slide.dataset.scene].cloneNode(true);
+    sc.classList.add('is-on'); sc.style.opacity = 1;
+    const sl = slide.cloneNode(true);
+    sl.classList.add('is-active'); sl.querySelector('.notes')?.remove();
+    [sc, sl].forEach(n => n.querySelectorAll('[id]').forEach(e => e.removeAttribute('id')));
+    sl.querySelectorAll('[data-anim]').forEach(e => e.removeAttribute('data-anim'));
+    sl.removeAttribute('data-anim');
+    mini.append(sc, sl);
+    btn.addEventListener('click', e => { e.stopPropagation(); go(i); });
+    railList.appendChild(btn);
+    return btn;
+  });
+  const sizeThumbs = () => thumbs.forEach(t => { const f = t.querySelector('.frame');
+    t.querySelector('.mini').style.transform = `scale(${f.clientWidth / W})`; });
+  sizeThumbs(); addEventListener('resize', sizeThumbs);
+  document.getElementById('railCount').textContent = `${slides.length} slides`;
+
+  const RAIL_KEY = 'saltbox-deck-rail';
+  let railOpen = innerWidth > 900;
+  try { const v = localStorage.getItem(RAIL_KEY); if (v !== null) railOpen = v === '1'; } catch(e){}
+  const fab = document.getElementById('railFab');
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  document.querySelectorAll('[data-shortcut]').forEach(k => k.textContent = isMac ? '⌘B' : 'Ctrl+B');
+  fab.setAttribute('aria-label', `Show slide thumbnails (${isMac ? '⌘B' : 'Ctrl+B'})`);
+  let uiAwake = true;
+  const updateFab = () => fab.classList.toggle('show', !railOpen && uiAwake);
+  const applyRail = () => { app.classList.toggle('rail-closed', !railOpen); updateFab(); };
+  const toggleRail = () => { railOpen = !railOpen; applyRail(); try { localStorage.setItem(RAIL_KEY, railOpen ? '1' : '0'); } catch(e){} };
+  applyRail();
+  document.getElementById('railClose').onclick = toggleRail;
+  fab.onclick = toggleRail;
+  // Fullscreen always presents without the rail; it comes back on exit.
+  document.addEventListener('fullscreenchange', () => { document.body.classList.toggle('is-fs', !!document.fullscreenElement); fit(); });
+
+  /* ── Chrome: progress, counter, notes, hud ── */
+  const bar = document.querySelector('.progress i'), count = document.getElementById('count');
+  const notesPanel = document.getElementById('notesPanel'), notesBody = document.getElementById('notesBody'), notesTitle = document.getElementById('notesTitle');
+  function updateChrome(){
+    bar.style.width = ((index + 1) / slides.length * 100) + '%';
+    count.textContent = `${index + 1} / ${slides.length}`;
+    const s = slides[index];
+    notesTitle.textContent = `Notes · ${String(index + 1).padStart(2,'0')} ${s.dataset.title || ''}`;
+    notesBody.innerHTML = s.querySelector('.notes')?.innerHTML || '<p>No notes for this slide.</p>';
+    thumbs.forEach((t, i) => t.setAttribute('aria-current', i === index ? 'true' : 'false'));
+    thumbs[index].scrollIntoView({ block:'nearest', behavior: reduce ? 'auto' : 'smooth' });
+    if (location.hash !== '#' + (index + 1)) history.replaceState(null, '', '#' + (index + 1));
+  }
+  const toggleNotes = () => notesPanel.classList.toggle('open');
+  const toggleFs = () => { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(()=>{}); } catch(e){} };
+
+  document.getElementById('prevBtn').onclick = () => go(index - 1);
+  document.getElementById('nextBtn').onclick = () => go(index + 1);
+  document.getElementById('notesBtn').onclick = toggleNotes;
+  document.getElementById('fsBtn').onclick = toggleFs;
+
+  addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'b'){ e.preventDefault(); toggleRail(); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if (['ArrowRight','ArrowUp','PageDown',' ','Enter'].includes(k)){ e.preventDefault(); go(index + 1); }
+    else if (['ArrowLeft','ArrowDown','PageUp','Backspace'].includes(k)){ e.preventDefault(); go(index - 1); }
+    else if (k === 'Home') go(0);
+    else if (k === 'End') go(slides.length - 1);
+    else if (k === 'n' || k === 'N') toggleNotes();
+    else if (k === 'f' || k === 'F') toggleFs();
+    else if (/^[1-9]$/.test(k)) go(+k - 1);
+  });
+
+  // Click the stage: right two thirds = next, left third = back
+  stage.addEventListener('click', e => {
+    if (e.target.closest('a,button')) return;
+    const r = stage.getBoundingClientRect();
+    (e.clientX - r.left) < r.width / 3 ? go(index - 1) : go(index + 1);
+  });
+  // Swipe
+  let sx = null;
+  addEventListener('touchstart', e => sx = e.touches[0].clientX, { passive:true });
+  addEventListener('touchend', e => { if (sx === null) return; const d = e.changedTouches[0].clientX - sx;
+    if (Math.abs(d) > 50) go(index + (d < 0 ? 1 : -1)); sx = null; });
+
+  // HUD appears on mouse movement, then hides
+  const hud = document.getElementById('hud'); let hideT;
+  const wake = () => {
+    hud.classList.add('show'); uiAwake = true; updateFab();
+    clearTimeout(hideT);
+    hideT = setTimeout(() => { hud.classList.remove('show'); uiAwake = false; updateFab(); }, 3000);
+  };
+  addEventListener('mousemove', wake); addEventListener('touchstart', wake, { passive:true });
+
+  /* ── Start ── */
+  const start = () => {
+    const h = parseInt(location.hash.slice(1), 10);
+    go(Number.isFinite(h) ? h - 1 : 0);
+    wake();
+  };
+  (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(start);
+})();
+</script>

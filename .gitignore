@@ -1,0 +1,4 @@
+node_modules/
+template/dist/
+.DS_Store
+extracted/
