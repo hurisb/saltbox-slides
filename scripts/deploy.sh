@@ -9,9 +9,14 @@ NAME="${2:-saltbox-deck}"
 [ -f "$FILE" ] || { echo "✗ File not found: $FILE"; exit 1; }
 command -v npx >/dev/null || { echo "✗ Node.js is required: https://nodejs.org (LTS)"; exit 1; }
 
-TMP="$(mktemp -d)"
+# Log in once per computer (opens your browser).
+npx --yes vercel@latest whoami >/dev/null 2>&1 || npx --yes vercel@latest login
+
+# Vercel names the project after the folder, so deploy from a folder called $NAME.
+TMP="$(mktemp -d)/$NAME"
+mkdir -p "$TMP"
 cp "$FILE" "$TMP/index.html"
 echo "→ Deploying $FILE as '$NAME'…"
 cd "$TMP"
-npx --yes vercel@latest deploy --prod --yes --name "$NAME"
+npx --yes vercel@latest deploy --prod --yes
 echo "✓ Done. Vercel links are public to anyone who has them."
